@@ -18,3 +18,14 @@ Debug/pdm2pcm.exe
 .vs/pdm2pcm/v15/ipch/AutoPCH/43f489edf6805d06/MAIN.ipch
 .vs/pdm2pcm/v15/Browse.VC.db
 .vs/pdm2pcm/v15/.suo
+*.opendb
+*.ipch
+*.obj
+*.log
+*.tlog
+*.pdb
+*.idb
+*.exe
+*.iobj
+*.ipdb
+*.ilk
