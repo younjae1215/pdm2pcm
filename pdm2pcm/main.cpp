@@ -8,6 +8,7 @@
 
 #define path "C:\\Users\\user\\Desktop\\pdm\\"
 #define MAX_DECIMATION_FACTOR 128
+#define blueCoin 0
 
 // 256, 32, 32
 void pdmFilter(uint16_t *PDMBuf, uint16_t *PCMBuf, uint32_t pcm_buff_size)
@@ -47,7 +48,7 @@ void pdmFilter(uint16_t *PDMBuf, uint16_t *PCMBuf, uint32_t pcm_buff_size)
 	}
 }
 
-void PDM2PCM(std::vector<unsigned char>& pdmSignal, std::vector<int>& pcmSignal, int decimationFactor)
+void PDM2PCM(std::vector<unsigned char>& pdmSignal, std::vector<int16_t>& pcmSignal, int decimationFactor)
 {
 	int decimationF = decimationFactor / 8; // byte size
 	int N = (pdmSignal.size() / decimationF); // PCM size, PCM size = (PDM size / decimation facor) ?		
@@ -91,7 +92,7 @@ void PDM2PCM(std::vector<unsigned char>& pdmSignal, std::vector<int>& pcmSignal,
 	//	pcmSignal.at(i) = tmpData;
 	//}
 
-	int volume = 10;
+	float volume = 1;
 
 	for (int i = 0; i < N - decimationFactor; i++)
 	{
@@ -102,7 +103,7 @@ void PDM2PCM(std::vector<unsigned char>& pdmSignal, std::vector<int>& pcmSignal,
 			tmpData += buffer[i + imod];
 		}
 
-		pcmSignal[i] = (tmpData) * volume;
+		pcmSignal[i] = tmpData * volume;
 	}
 	
 	return;
@@ -126,7 +127,7 @@ void write16(std::ofstream& os, int data)
 	}
 }
 
-void makeWAV(int samplingRate, std::vector<int>& pcmSignal_left, std::vector<int>& pcmSignal_right)
+void makeWAV(int samplingRate, std::vector<int16_t>& pcmSignal_left, std::vector<int16_t>& pcmSignal_right)
 {
 	//https://blog.naver.com/PostView.nhn?blogId=psychoria&logNo=40139175382
 	
@@ -206,148 +207,211 @@ void main()
 	std::vector<unsigned char> pdmSignal_left;
 	std::vector<unsigned char> pdmSignal_right;
 
-	std::vector<uint8_t> pdmSignal;
-
-	std::string fileName(path);
-	fileName += "bellazio.txt";
-
-	std::ifstream readFile;
-	readFile.open(fileName.c_str());
-
-	if (readFile.is_open())
+	if (blueCoin)
 	{
-		int i = 0;
-		uint8_t tmpValue = 0;
-		while (!readFile.eof())
+		std::string fileName(path);
+		fileName += "200916_sample\\BlueCoin_Log_PDM_N002.txt";
+
+		std::ifstream readFile;
+		readFile.open(fileName.c_str());
+
+		std::vector<char> pdmSignal;
+
+		if (readFile.is_open())
 		{
-			std::string tmpStr;
-			readFile >> tmpStr;
-			uint16_t tmpData = std::atoi(tmpStr.c_str());
+			readFile.seekg(0, std::ios::end);
+			int sz = readFile.tellg();
+			readFile.seekg(0, std::ios::beg);
 
-			tmpValue += tmpData * pow(2, i % 8);
-
-			if (i != 0 && i % 8 == 0)
-			{
-				unsigned char a = tmpData >> 8;
-				unsigned char b = tmpData;
-
-				pdmSignal_left.push_back(a);
-				pdmSignal_right.push_back(b);
-
-				//pdmSignal.push_back(tmpData);
-				pdmSignal.push_back(tmpValue);
-				tmpValue = 0;
-			}
-			++i;
+			pdmSignal.assign(sz, 0);
+			readFile.read(pdmSignal.data(), sz);
 		}
+
+		std::vector<uint16_t> pdmSignal_uint16;
+
+		//if (readFile.is_open())
+		//{
+		//	while (!readFile.eof())
+		//	{
+		//		std::string tmpStr;
+		//		readFile >> tmpStr;
+		//		uint16_t tmpData = std::atoi(tmpStr.c_str());
+
+		//		unsigned char a = tmpData >> 8;
+		//		unsigned char b = tmpData;
+
+		//		pdmSignal_left.push_back(a);
+		//		pdmSignal_right.push_back(b);
+
+		//		pdmSignal_uint16.push_back(tmpData);
+		//	}
+		//}
+
+		readFile.close();
+
+		for (int i = 0; i < pdmSignal.size(); ++i)
+		{
+			if (i % 2 == 0)
+				pdmSignal_left.push_back(pdmSignal.at(i));
+			else
+				pdmSignal_right.push_back(pdmSignal.at(i));
+		}
+
+		for (int i = 0; i < pdmSignal_left.size(); ++i)
+		{
+			uint16_t tmpData = (pdmSignal_left.at(i) << 8) + pdmSignal_right.at(i);
+			pdmSignal_uint16.push_back(tmpData);
+		}
+
+		std::vector<int16_t> pcmSignal_left;
+		std::vector<int16_t> pcmSignal_right;
+
+		int decimationfactor = 128;
+		PDM2PCM(pdmSignal_left, pcmSignal_left, decimationfactor);
+		PDM2PCM(pdmSignal_right, pcmSignal_right, decimationfactor);
+		
+		std::vector<int16_t> pcmsignal;
+		uint16_t pcm_buff_size = 32;
+
+		int size = pdmSignal_uint16.size() / 256;
+
+		for (int i = 0; i < size - 1; ++i)
+		{
+			std::vector<uint16_t> pdmbuff(pdmSignal_uint16.begin() + i * 256, pdmSignal_uint16.begin() + ((i + 1) * 256));
+			std::vector<uint16_t> pcmbuff(pcm_buff_size, 0);
+			pdmFilter(pdmbuff.data(), pcmbuff.data(), pcm_buff_size);
+
+			pcmsignal.insert(pcmsignal.end(), pcmbuff.begin(), pcmbuff.end());
+		}
+
+		int samplingrate = 16000;
+		makeWAV(samplingrate, pcmSignal_left, pcmSignal_right);
+		makeWAV_uint16(samplingrate, pcmsignal);
 	}
-	readFile.close();
-
-	//std::vector<int> pcmSignal_left;
-	//std::vector<int> pcmSignal_right;
-
-	//int decimationFactor = 128;
-	//PDM2PCM(pdmSignal_left, pcmSignal_left, decimationFactor);
-	//PDM2PCM(pdmSignal_right, pcmSignal_right, decimationFactor);
-	//
-	//std::vector<uint16_t> pcmSignal;
-	//uint16_t pcm_buff_size = 32;
-	//int size = pdmSignal.size() / 256;
-
-	//for (int i = 0; i < size - 1; ++i)
-	//{
-	//	std::vector<uint16_t> pdmBuff(pdmSignal.begin() + i * 256, pdmSignal.begin() + ((i + 1) * 256));
-	//	std::vector<uint16_t> pcmBuff(pcm_buff_size, 0);
-	//	pdmFilter(pdmBuff.data(), pcmBuff.data(), pcm_buff_size);
-
-	//	pcmSignal.insert(pcmSignal.end(), pcmBuff.begin(), pcmBuff.end());
-	//}
-
-	//int samplingRate = 8000;
-	//makeWAV(samplingRate, pcmSignal_left, pcmSignal_right);
-	//makeWAV_uint16(samplingRate, pcmSignal);
-
-	unsigned int pdmSamplingF, decimationF, pcmSamplingF, pdmBufLen, pcmBufLen;
-	//uint8_t* pdmBuf;
-	//int16_t* pcmBuf;
-	TPDMFilter_InitStruct filter;
-
-	pdmSamplingF = 1024000;
-	decimationF = 128;
-	pcmSamplingF = pdmSamplingF / decimationF;
-
-	pdmBufLen = pdmSamplingF / 1000;		// 1024
-	pcmBufLen = pdmBufLen / decimationF;	// 8
-
-	//pdmBuf = malloc(pdmBufLen / 8);
-	//std::vector<uint8_t> pdmBuf(pdmBufLen / 8, 0);
-
-	//pcmBuf = malloc(sizeof(int16_t)*pcmBufLen);
-	//std::vector<uint8_t> pdmBuf(pcmBufLen, 0);
-
-	/* Initialize Open PDM library */
-	filter.Fs = pcmSamplingF;
-	filter.nSamples = pcmBufLen;
-	filter.LP_HZ = pcmSamplingF / 2;
-	filter.HP_HZ = 10;
-	filter.In_MicChannels = 1;
-	filter.Out_MicChannels = 1;
-	filter.Decimation = decimationF;
-	Open_PDM_Filter_Init(&filter);
-
-	int finished = 0;
-	int dataCount = 0;
-	int ret = 0;
-
-	//while (finished == 0) {
-	//	/* Grab 1ms data from stdin */
-	//	dataCount = 0;
-	//	while ((dataCount < pdmBufLen / 8) && (finished == 0)) {
-	//		ret = read(STDIN_FILENO, pdmBuf + dataCount, pdmBufLen / 8 - dataCount);
-	//		if (ret < 0) {
-	//			fprintf(stderr, "Error reading from STDIN: %s\n", strerror(errno));
-	//			exit(errno);
-	//		}
-
-	//		if (ret == 0) {
-	//			fprintf(stderr, "Decoding complete!\n");
-	//			finished = 1;
-	//		}
-
-	//		dataCount += ret;
-	//	}
-
-	//	/* Decode PDM. Oldest PDM bit is MSB */
-	//	Open_PDM_Filter_128(pdmBuf, pcmBuf, 1, &filter);
-
-	//	/* Emit PCM decoded data to stdout */
-	//	dataCount = 0;
-	//	while (dataCount < sizeof(int16_t)*pcmBufLen) {
-	//		ret = write(STDOUT_FILENO, pcmBuf + dataCount, sizeof(int16_t)*pcmBufLen - dataCount);
-	//		if (ret < 0) {
-	//			fprintf(stderr, "Error writing to STDOUT: %s\n", strerror(errno));
-	//			exit(errno);
-	//		}
-
-	//		dataCount += ret;
-	//	}
-	//}
-
-	std::vector<int16_t> pcmSignal;
-	int pdmBuffSize = pdmBufLen / 8;
-	int pcmBuffSize = pdmBufLen / decimationF;
-	int size = 8;
-
-	for (int i = 0; i < pdmSignal.size() / size; ++i)
+	else
 	{
-		std::vector<uint8_t> pdmBuff(pdmSignal.begin() + i * size, pdmSignal.begin() + ((i + 1) * size));
-		std::vector<int16_t> pcmBuff(size, 0);
-		Open_PDM_Filter_128(pdmBuff.data(), pcmBuff.data(), 1, &filter);
+		std::string fileName(path);
+		fileName += "200916_sample\\BlueCoin_Log_PDM_N002.txt";
 
-		pcmSignal.insert(pcmSignal.end(), pcmBuff.begin(), pcmBuff.end());
+		std::ifstream readFile;
+		readFile.open(fileName.c_str());
+
+		std::vector<char> pdmSignal;
+
+		//if (readFile.is_open())
+		//{
+		//	int i = 0;
+		//	uint8_t tmpValue = 0;
+		//	while (!readFile.eof())
+		//	{
+		//		std::string tmpStr;
+		//		readFile >> tmpStr;
+		//		uint16_t tmpData = std::atoi(tmpStr.c_str());
+
+		//		tmpValue += tmpData * pow(2, i % 8);
+
+		//		if (i != 0 && i % 8 == 0)
+		//		{
+		//			pdmSignal.push_back(tmpValue);
+		//			tmpValue = 0;
+		//		}
+		//		++i;
+		//	}
+		//}
+		//readFile.close();
+
+		if (readFile.is_open())
+		{
+			readFile.seekg(0, std::ios::end);
+			int sz = readFile.tellg();
+			readFile.seekg(0, std::ios::beg);
+
+			pdmSignal.assign(sz, 0);
+			readFile.read(pdmSignal.data(), sz);
+		}
+
+		unsigned int pdmSamplingF, decimationF, pcmSamplingF, pdmBufLen, pcmBufLen;
+		//uint8_t* pdmBuf;
+		//int16_t* pcmBuf;
+		TPDMFilter_InitStruct filter;
+
+		pdmSamplingF = 1024000 * 2;
+		decimationF = 128;
+		pcmSamplingF = pdmSamplingF / decimationF;
+
+		pdmBufLen = pdmSamplingF / 1000;		// 1024
+		pcmBufLen = pdmBufLen / decimationF;	// 8
+
+		//pdmBuf = malloc(pdmBufLen / 8);
+		//std::vector<uint8_t> pdmBuf(pdmBufLen / 8, 0);
+
+		//pcmBuf = malloc(sizeof(int16_t)*pcmBufLen);
+		//std::vector<uint8_t> pdmBuf(pcmBufLen, 0);
+
+		/* Initialize Open PDM library */
+		filter.Fs = pcmSamplingF;
+		filter.nSamples = pcmBufLen;
+		filter.LP_HZ = pcmSamplingF / 2;
+		filter.HP_HZ = 10;
+		filter.In_MicChannels = 1;
+		filter.Out_MicChannels = 1;
+		filter.Decimation = decimationF;
+		Open_PDM_Filter_Init(&filter);
+
+		int finished = 0;
+		int dataCount = 0;
+		int ret = 0;
+
+		//while (finished == 0) {
+		//	/* Grab 1ms data from stdin */
+		//	dataCount = 0;
+		//	while ((dataCount < pdmBufLen / 8) && (finished == 0)) {
+		//		ret = read(STDIN_FILENO, pdmBuf + dataCount, pdmBufLen / 8 - dataCount);
+		//		if (ret < 0) {
+		//			fprintf(stderr, "Error reading from STDIN: %s\n", strerror(errno));
+		//			exit(errno);
+		//		}
+
+		//		if (ret == 0) {
+		//			fprintf(stderr, "Decoding complete!\n");
+		//			finished = 1;
+		//		}
+
+		//		dataCount += ret;
+		//	}
+
+		//	/* Decode PDM. Oldest PDM bit is MSB */
+		//	Open_PDM_Filter_128(pdmBuf, pcmBuf, 1, &filter);
+
+		//	/* Emit PCM decoded data to stdout */
+		//	dataCount = 0;
+		//	while (dataCount < sizeof(int16_t)*pcmBufLen) {
+		//		ret = write(STDOUT_FILENO, pcmBuf + dataCount, sizeof(int16_t)*pcmBufLen - dataCount);
+		//		if (ret < 0) {
+		//			fprintf(stderr, "Error writing to STDOUT: %s\n", strerror(errno));
+		//			exit(errno);
+		//		}
+
+		//		dataCount += ret;
+		//	}
+		//}
+
+		std::vector<int16_t> pcmSignal;
+		int pdmBuffSize = pdmBufLen / 8;
+		int pcmBuffSize = pdmBufLen / decimationF;
+		int size = pdmBuffSize;
+
+		for (int i = 0; i < pdmSignal.size() / size; ++i)
+		{
+			std::vector<uint8_t> pdmBuff(pdmSignal.begin() + i * size, pdmSignal.begin() + ((i + 1) * size));
+			std::vector<int16_t> pcmBuff(pcmBuffSize, 0);
+			Open_PDM_Filter_128(pdmBuff.data(), pcmBuff.data(), 1, &filter);
+
+			pcmSignal.insert(pcmSignal.end(), pcmBuff.begin(), pcmBuff.end());
+		}
+
+		makeWAV_uint16(pcmSamplingF, pcmSignal);
 	}
-
-	makeWAV_uint16(pcmSamplingF, pcmSignal);
 
 	return;
 }
